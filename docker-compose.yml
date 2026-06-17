@@ -1,0 +1,89 @@
+x-common-env: &common-env
+  DATABASE_URL: postgresql+asyncpg://postgres:password@postgres:5432/batch_db
+  TEST_DATABASE_URL: postgresql+asyncpg://postgres:password@postgres:5432/batch_test
+  REDIS_URL: redis://redis:6379/0
+  VENDOR_URL: http://vendor:8080
+  TENANT_RATE_LIMITS: '{}'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: batch_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./migrations/create_test_db.sql:/docker-entrypoint-initdb.d/create_test_db.sql
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d batch_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  vendor:
+    build:
+      context: ./mock_vendor
+      dockerfile: Dockerfile
+    environment:
+      MOCK_FAILURE_RATE: "0.1"
+      MOCK_RATE_LIMIT_RATE: "0.1"
+      MOCK_MIN_LATENCY: "0.1"
+      MOCK_MAX_LATENCY: "1.0"
+      MOCK_RETRY_AFTER: "5"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/workspace
+    environment:
+      <<: *common-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vendor:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: python -m app.worker.engine
+    volumes:
+      - .:/workspace
+    environment:
+      <<: *common-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vendor:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
