@@ -1,10 +1,121 @@
 # Batch Processing Service
 
-Multi-tenant asynchronous batch text analysis service built with FastAPI, PostgreSQL, Redis, and asyncio workers.
+Production-style multi-tenant asynchronous batch processing service built with FastAPI, PostgreSQL, Redis, and asyncio workers. The system demonstrates durable work queues, strict idempotency, distributed rate limiting, lease-based recovery, and resilient processing of unreliable third-party APIs.
 
-The service accepts text batches, stores durable item state in PostgreSQL, processes items asynchronously against a deliberately unreliable vendor API, enforces a Redis token bucket per tenant, and exposes status, results, and failures while work is still running.
+## Architecture
 
-![Architecture](architecture.png)
+The service is organized into five independent execution layers. Each layer owns a single responsibility, making the system easier to reason about, test, maintain, and scale while ensuring safe concurrent processing.
+
+### High-Level System Architecture
+
+![System Architecture](assets/architecture/system-architecture.png)
+
+## Technology Stack
+
+The following diagram illustrates how the major technologies interact throughout the request lifecycle.
+
+![Technology Stack](assets/architecture/technology-stack.png)
+
+## Architecture Walkthrough
+
+## Super Layer 1 – API & Request Processing
+
+This layer is responsible for receiving client requests, validating input, identifying tenants, enforcing request constraints, and routing work into the system.
+
+**Responsibilities**
+
+- FastAPI request routing
+- Request validation
+- Tenant identification
+- Request size protection
+- Response serialization
+- Health endpoint
+
+![Super Layer 1](assets/architecture/super-layer-1-api-request-processing.png)
+
+### Request Flow
+
+The following diagram shows how an incoming request flows through the API layer before entering the persistence layer.
+
+![Layer 1 Data Flow](assets/architecture/super-layer-1-data-flow.png)
+
+## Super Layer 2 – Admission Control & Idempotent Persistence
+
+This layer guarantees duplicate submissions never create duplicate work by combining deterministic payload hashing, idempotency validation, conflict detection, and atomic persistence.
+
+**Responsibilities**
+
+- Payload hashing
+- Duplicate detection
+- Conflict detection
+- Batch idempotency
+- Atomic persistence
+- Durable batch creation
+
+![Super Layer 2](assets/architecture/super-layer-2-admission-control-idempotency.png)
+
+### Execution Flow
+
+The following diagram illustrates duplicate detection, payload verification, and atomic persistence inside a single transaction.
+
+![Layer 2 Data Flow](assets/architecture/super-layer-2-data-flow.png)
+
+## Super Layer 3 – Async Worker Coordination
+
+This layer coordinates asynchronous processing while ensuring that each item is processed safely through durable leases, ownership validation, retries, and crash recovery.
+
+**Responsibilities**
+
+- Worker scheduling
+- Pending item claiming
+- Lease ownership validation
+- Retry scheduling
+- Crash recovery
+- Durable state transitions
+
+![Super Layer 3](assets/architecture/super-layer-3-worker-coordination.png)
+
+### Execution Flow
+
+The following diagram illustrates worker claiming, lease validation, retry scheduling, and durable state transitions.
+
+![Layer 3 Data Flow](assets/architecture/super-layer-3-data-flow.png)
+
+## Super Layer 4 – Distributed Rate Limiting
+
+The rate limiting layer provides fair request scheduling across tenants using a Redis-backed token bucket implemented with an atomic Lua script.
+
+**Responsibilities**
+
+- Per-tenant rate limiting
+- Redis token bucket
+- Atomic token acquisition
+- Configurable refill rates
+- Shared limits across worker processes
+
+![Super Layer 4](assets/architecture/super-layer-4-distributed-rate-limiting.png)
+
+## Super Layer 5 – External Vendor Integration
+
+The vendor integration layer encapsulates all communication with the third-party API, including retries, exponential backoff, Retry-After handling, and vendor idempotency headers.
+
+**Responsibilities**
+
+- Vendor API communication
+- Retry handling
+- Exponential backoff
+- Error classification
+- Vendor idempotency support
+
+![Super Layer 5](assets/architecture/super-layer-5-vendor-integration.png)
+
+## Architecture Principles
+
+The implementation intentionally separates API admission, idempotency, persistence, worker coordination, distributed rate limiting, and vendor integration into independent architectural layers.
+
+This separation keeps each concern independently testable while improving maintainability, resilience, and reasoning about concurrent execution.
+
+---
 
 ## Quick Start
 
